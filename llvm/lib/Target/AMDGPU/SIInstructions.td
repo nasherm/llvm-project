@@ -230,10 +230,16 @@ def S_INVERSE_BALLOT_U64 : SPseudoInstSI<
 let Uses = [MODE, EXEC] in {
 def FPTRUNC_ROUND_F16_F32_PSEUDO : VPseudoInstSI <(outs VGPR_32:$vdst),
   (ins VGPR_32:$src0, i32imm:$round)>;
+
+def FPTRUNC_ROUND_F32_F64_PSEUDO : VPseudoInstSI <(outs VGPR_32:$vdst),
+  (ins VReg_64:$src0, i32imm:$round)>;
 } // End Uses = [MODE, EXEC]
 
 def : GCNPat <(f16 (fptrunc_round f32:$src0, (i32 SupportedRoundMode:$round))),
      (FPTRUNC_ROUND_F16_F32_PSEUDO $src0, (as_hw_round_mode $round))>;
+
+def : GCNPat <(f32 (fptrunc_round f64:$src0, (i32 SupportedRoundMode:$round))),
+     (FPTRUNC_ROUND_F32_F64_PSEUDO $src0, (as_hw_round_mode $round))>;
 
 // Invert the exec mask and overwrite the inactive lanes of dst with inactive,
 // restoring it after we're done.
@@ -575,6 +581,16 @@ def SI_INIT_EXEC_FROM_INPUT : SPseudoInstSI <
   (outs), (ins SSrc_b32:$input, i32imm:$shift),
   [(int_amdgcn_init_exec_from_input i32:$input, (i32 timm:$shift))]> {
   let Defs = [EXEC];
+}
+
+// Sets EXEC to all lanes and returns the previous EXEC.
+def SI_INIT_WHOLE_WAVE : SPseudoInstSI <
+  (outs SReg_1:$dst), (ins),
+  [(set i1:$dst, (int_amdgcn_init_whole_wave))]> {
+  let Defs = [EXEC];
+  let Uses = [EXEC];
+
+  let isConvergent = 1;
 }
 
 // Return for returning shaders to a shader variant epilog.
@@ -3977,6 +3993,16 @@ def G_AMDGPU_S_BUFFER_LOAD_SBYTE : SBufferLoadInstruction;
 def G_AMDGPU_S_BUFFER_LOAD_UBYTE : SBufferLoadInstruction;
 def G_AMDGPU_S_BUFFER_LOAD_SSHORT : SBufferLoadInstruction;
 def G_AMDGPU_S_BUFFER_LOAD_USHORT : SBufferLoadInstruction;
+
+class SBufferPrefetchInstruction : AMDGPUGenericInstruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins type0:$rsrc, untyped_imm_0:$offset, type1:$len);
+  let hasSideEffects = 0;
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
+def G_AMDGPU_S_BUFFER_PREFETCH : SBufferPrefetchInstruction;
 
 def G_AMDGPU_S_MUL_U64_U32 : AMDGPUGenericInstruction {
   let OutOperandList = (outs type0:$dst);

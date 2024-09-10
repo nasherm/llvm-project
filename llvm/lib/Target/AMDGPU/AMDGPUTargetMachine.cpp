@@ -1277,7 +1277,7 @@ void GCNPassConfig::addMachineSSAOptimization() {
   if (isPassEnabled(EnableSDWAPeephole)) {
     addPass(&SIPeepholeSDWAID);
     addPass(&EarlyMachineLICMID);
-    addPass(&MachineCSEID);
+    addPass(&MachineCSELegacyID);
     addPass(&SIFoldOperandsLegacyID);
   }
   addPass(&DeadMachineInstructionElimID);
@@ -1738,6 +1738,9 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
   MFI->Mode.FP64FP16Denormals.Output = YamlMFI.Mode.FP64FP16OutputDenormals
                                            ? DenormalMode::IEEE
                                            : DenormalMode::PreserveSign;
+
+  if (YamlMFI.HasInitWholeWave)
+    MFI->setInitWholeWave();
 
   return false;
 }
