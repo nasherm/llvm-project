@@ -34,6 +34,7 @@
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
@@ -446,6 +447,15 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
                                          const MCSubtargetInfo* STI) const {
   unsigned Kind = Fixup.getKind();
 
+  // For MOVW/MOVT Instructions, the fixup value must already be 16-bit aligned.
+  if ((Kind == ARM::fixup_arm_movw_lo16 || Kind == ARM::fixup_arm_movt_hi16 ||
+       Kind == ARM::fixup_t2_movw_lo16 || Kind == ARM::fixup_t2_movt_hi16) &&
+      (static_cast<int64_t>(Value) < minIntN(16) ||
+       static_cast<int64_t>(Value) > maxIntN(16))) {
+    Ctx.reportError(Fixup.getLoc(), "Relocation Not In Range");
+    return 0;
+  }
+
   // MachO tries to make .o files that look vaguely pre-linked, so for MOVW/MOVT
   // and .word relocations they put the Thumb bit into the addend if possible.
   // Other relocation types don't want this bit though (branches couldn't encode
@@ -579,13 +589,27 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
   case ARM::fixup_arm_uncondbl:
   case ARM::fixup_arm_condbl:
   case ARM::fixup_arm_blx:
+    // Check that the relocation value is legal.
+    Value -= 8;
+    if (!isInt<26>(Value)) {
+      Ctx.reportError(Fixup.getLoc(), "Relocation out of range");
+      return 0;
+    }
+    // Alignment differs for blx. Because we are switching to thumb ISA, we use
+    // 16-bit alignment. Otherwise, use 32-bit.
+    if ((Kind == ARM::fixup_arm_blx && Value % 2 != 0) ||
+        (Kind != ARM::fixup_arm_blx && Value % 4 != 0)) {
+      Ctx.reportError(Fixup.getLoc(), "Relocation not aligned");
+      return 0;
+    }
+
     // These values don't encode the low two bits since they're always zero.
     // Offset by 8 just as above.
     if (const MCSymbolRefExpr *SRE =
             dyn_cast<MCSymbolRefExpr>(Fixup.getValue()))
       if (SRE->getKind() == MCSymbolRefExpr::VK_TLSCALL)
         return 0;
-    return 0xffffff & ((Value - 8) >> 2);
+    return 0xffffff & (Value >> 2);
   case ARM::fixup_t2_uncondbranch: {
     if (STI->getTargetTriple().isOSBinFormatCOFF() && !IsResolved &&
         Value != 4) {
